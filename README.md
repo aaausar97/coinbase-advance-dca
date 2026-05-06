@@ -2,6 +2,10 @@
 
 A simple FastAPI service that places recurring market buys for BTC, ETH, and SOL on the Coinbase Advanced API. Built-in APScheduler runs autonomously; manual API endpoints let you trigger or inspect history. Runs in Docker for both local dev and deployment. Includes a `DRY_RUN` mode for safe testing.
 
+
+
+Currently running 24/7 in Dry_Run mode. Plans to launch live and use for first purchases June 1st 2026!
+
 ## Quick start (Docker, recommended)
 
 ```bash
@@ -79,3 +83,4 @@ uvicorn app.main:app --reload --env-file environment/.env
 - Strict asset allowlist (`BTC-USD`, `ETH-USD`, `SOL-USD`)
 - Daily USD cap (`DCA_DAILY_CAP_USD=100`)
 - Idempotent `client_order_id` (per-minute granularity)
+
