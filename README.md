@@ -84,3 +84,8 @@ uvicorn app.main:app --reload --env-file environment/.env
 - Daily USD cap (`DCA_DAILY_CAP_USD=100`)
 - Idempotent `client_order_id` (per-minute granularity)
 
+## Testing 
+
+```cd /Users/ausarmundra/coding/dca-bot/environment
+docker compose run --rm -v ..:/app -w /app dca-bot python -m pytest -q
+```
