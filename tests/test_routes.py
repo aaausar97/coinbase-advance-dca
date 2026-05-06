@@ -375,3 +375,198 @@ async def test_balances_route_defaults_to_core_assets_only(init_db, fake_client,
         assert full_balances.status_code == 200, full_balances.text
         full_assets = {entry["asset"] for entry in full_balances.json()["balances"]}
         assert full_assets == {"BTC", "USDC", "ANKR"}
+
+
+# ---------- Fee Comparison Analytics ----------
+
+
+async def test_fees_comparison_returns_correct_structure(init_db, fake_client):
+    """Endpoint returns well-formed response even with zero purchases."""
+    from fastapi import FastAPI
+
+    from app.core.exceptions import register_exception_handlers
+    from app.routes import api_router
+
+    app = FastAPI(title="DCA Test")
+    app.version = "test"
+    app.state.settings = get_settings()
+    app.state.coinbase = fake_client
+    app.state.plans = [Plan(asset="BTC", product_id="BTC-USD", amount=Decimal("10"), cron="0 9 * * *")]
+    app.state.scheduler = None
+    register_exception_handlers(app)
+    app.include_router(api_router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/analytics/fees-comparison")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assumptions"]["recurring_buy_fee_rate"] == "0.0149"
+    assert body["granularity"] == "month"
+    assert body["series"] == []
+    assert body["totals"]["usd_invested"] == "0"
+    assert body["totals"]["total_savings_usd"] == "0"
+
+
+async def test_fees_comparison_math_with_purchases(init_db, fake_client):
+    """Verify per-period and cumulative savings math against known values."""
+    from fastapi import FastAPI
+
+    from app.core.exceptions import register_exception_handlers
+    from app.models import Purchase
+    from app.routes import api_router
+
+    app = FastAPI(title="DCA Test")
+    app.version = "test"
+    app.state.settings = get_settings()
+    app.state.coinbase = fake_client
+    app.state.plans = [Plan(asset="BTC", product_id="BTC-USD", amount=Decimal("10"), cron="0 9 * * *")]
+    app.state.scheduler = None
+    register_exception_handlers(app)
+    app.include_router(api_router)
+
+    await Purchase.create(
+        asset="BTC",
+        product_id="BTC-USD",
+        usd_amount=Decimal("100"),
+        client_order_id="test-order-1",
+        status="filled",
+        fees_usd=Decimal("0.60"),
+        filled_size=Decimal("0.002"),
+        avg_price=Decimal("50000"),
+    )
+    await Purchase.create(
+        asset="BTC",
+        product_id="BTC-USD",
+        usd_amount=Decimal("200"),
+        client_order_id="test-order-2",
+        status="filled",
+        fees_usd=Decimal("1.20"),
+        filled_size=Decimal("0.004"),
+        avg_price=Decimal("50000"),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/analytics/fees-comparison", params={"granularity": "day"})
+    assert resp.status_code == 200
+    body = resp.json()
+
+    totals = body["totals"]
+    assert Decimal(totals["usd_invested"]) == Decimal("300")
+    assert Decimal(totals["actual_fees_usd"]) == Decimal("1.80")
+    expected_recurring = Decimal("300") * Decimal("0.0149")
+    assert Decimal(totals["recurring_fees_usd"]) == expected_recurring
+    assert Decimal(totals["total_savings_usd"]) == expected_recurring - Decimal("1.80")
+
+
+async def test_fees_comparison_filters_by_asset(init_db, fake_client):
+    """Asset filter narrows results to only the requested asset."""
+    from fastapi import FastAPI
+
+    from app.core.exceptions import register_exception_handlers
+    from app.models import Purchase
+    from app.routes import api_router
+
+    app = FastAPI(title="DCA Test")
+    app.version = "test"
+    app.state.settings = get_settings()
+    app.state.coinbase = fake_client
+    app.state.plans = [Plan(asset="BTC", product_id="BTC-USD", amount=Decimal("10"), cron="0 9 * * *")]
+    app.state.scheduler = None
+    register_exception_handlers(app)
+    app.include_router(api_router)
+
+    await Purchase.create(
+        asset="BTC",
+        product_id="BTC-USD",
+        usd_amount=Decimal("50"),
+        client_order_id="btc-order-1",
+        status="filled",
+        fees_usd=Decimal("0.30"),
+        filled_size=Decimal("0.001"),
+        avg_price=Decimal("50000"),
+    )
+    await Purchase.create(
+        asset="ETH",
+        product_id="ETH-USD",
+        usd_amount=Decimal("80"),
+        client_order_id="eth-order-1",
+        status="filled",
+        fees_usd=Decimal("0.48"),
+        filled_size=Decimal("0.02"),
+        avg_price=Decimal("4000"),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/analytics/fees-comparison", params={"asset": "BTC"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert Decimal(body["totals"]["usd_invested"]) == Decimal("50")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp_all = await client.get("/analytics/fees-comparison")
+    assert Decimal(resp_all.json()["totals"]["usd_invested"]) == Decimal("130")
+
+
+async def test_fees_comparison_excludes_failed_purchases(init_db, fake_client):
+    """Failed purchases are not included in fee comparison data."""
+    from fastapi import FastAPI
+
+    from app.core.exceptions import register_exception_handlers
+    from app.models import Purchase
+    from app.routes import api_router
+
+    app = FastAPI(title="DCA Test")
+    app.version = "test"
+    app.state.settings = get_settings()
+    app.state.coinbase = fake_client
+    app.state.plans = [Plan(asset="BTC", product_id="BTC-USD", amount=Decimal("10"), cron="0 9 * * *")]
+    app.state.scheduler = None
+    register_exception_handlers(app)
+    app.include_router(api_router)
+
+    await Purchase.create(
+        asset="BTC",
+        product_id="BTC-USD",
+        usd_amount=Decimal("100"),
+        client_order_id="good-order",
+        status="filled",
+        fees_usd=Decimal("0.60"),
+        filled_size=Decimal("0.002"),
+        avg_price=Decimal("50000"),
+    )
+    await Purchase.create(
+        asset="BTC",
+        product_id="BTC-USD",
+        usd_amount=Decimal("100"),
+        client_order_id="bad-order",
+        status="failed",
+        fees_usd=None,
+        error="Insufficient funds",
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/analytics/fees-comparison")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert Decimal(body["totals"]["usd_invested"]) == Decimal("100")
+
+
+async def test_fees_comparison_rejects_invalid_asset(init_db, fake_client):
+    """Non-allowlisted asset returns 422."""
+    from fastapi import FastAPI
+
+    from app.core.exceptions import register_exception_handlers
+    from app.routes import api_router
+
+    app = FastAPI(title="DCA Test")
+    app.version = "test"
+    app.state.settings = get_settings()
+    app.state.coinbase = fake_client
+    app.state.plans = [Plan(asset="BTC", product_id="BTC-USD", amount=Decimal("10"), cron="0 9 * * *")]
+    app.state.scheduler = None
+    register_exception_handlers(app)
+    app.include_router(api_router)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/analytics/fees-comparison", params={"asset": "DOGE"})
+    assert resp.status_code == 422

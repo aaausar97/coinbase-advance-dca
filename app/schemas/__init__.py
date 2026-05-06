@@ -1,5 +1,11 @@
 """Pydantic schemas (request/response)."""
 
+from app.schemas.analytics import (
+    FeeAssumptions,
+    FeeComparisonBucket,
+    FeeComparisonOut,
+    FeeComparisonTotals,
+)
 from app.schemas.common import (
     BalanceOut,
     BalancesOut,
@@ -16,6 +22,10 @@ __all__ = [
     "BalancesOut",
     "ErrorOut",
     "ErrorResponse",
+    "FeeAssumptions",
+    "FeeComparisonBucket",
+    "FeeComparisonOut",
+    "FeeComparisonTotals",
     "HealthOut",
     "PlanListOut",
     "PlanOut",

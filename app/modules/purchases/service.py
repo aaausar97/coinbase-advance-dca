@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from app.core.exceptions import NotFoundError
 from app.models import Purchase, PurchaseStatus
+
+RECURRING_BUY_FEE_RATE = Decimal("0.0149")
 
 
 class PurchaseService:
@@ -98,3 +101,86 @@ class PurchaseService:
             {"asset": asset, "available": amount, "hold": Decimal("0")}
             for asset, amount in sorted(totals.items())
         ]
+
+    @staticmethod
+    async def fee_comparison(
+        asset: str | None = None,
+        granularity: Literal["day", "week", "month"] = "month",
+        limit: int = 52,
+        since: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Compare actual Advanced Trade fees vs hypothetical 1.49% recurring-buy fees.
+
+        Returns assumptions, time-bucketed series, and window-level totals.
+        """
+
+        query = Purchase.all().exclude(status=PurchaseStatus.FAILED).order_by("created_at")
+        if asset:
+            query = query.filter(asset=asset.upper())
+        if since:
+            query = query.filter(created_at__gte=since)
+
+        purchases = await query
+
+        def _bucket_key(dt: datetime) -> str:
+            if granularity == "day":
+                return dt.strftime("%Y-%m-%d")
+            elif granularity == "week":
+                iso = dt.isocalendar()
+                return f"{iso[0]}-W{iso[1]:02d}"
+            else:
+                return dt.strftime("%Y-%m")
+
+        buckets: dict[str, dict[str, Decimal]] = defaultdict(
+            lambda: {
+                "usd_invested": Decimal("0"),
+                "actual_fees_usd": Decimal("0"),
+                "recurring_fees_usd": Decimal("0"),
+            }
+        )
+
+        for p in purchases:
+            key = _bucket_key(p.created_at)
+            usd = Decimal(p.usd_amount)
+            buckets[key]["usd_invested"] += usd
+            buckets[key]["actual_fees_usd"] += Decimal(p.fees_usd) if p.fees_usd else Decimal("0")
+            buckets[key]["recurring_fees_usd"] += usd * RECURRING_BUY_FEE_RATE
+
+        sorted_keys = sorted(buckets.keys())[-limit:]
+
+        series = []
+        cumulative_diff = Decimal("0")
+        total_invested = Decimal("0")
+        total_actual = Decimal("0")
+        total_recurring = Decimal("0")
+
+        for key in sorted_keys:
+            b = buckets[key]
+            period_diff = b["recurring_fees_usd"] - b["actual_fees_usd"]
+            cumulative_diff += period_diff
+            total_invested += b["usd_invested"]
+            total_actual += b["actual_fees_usd"]
+            total_recurring += b["recurring_fees_usd"]
+
+            series.append({
+                "period": key,
+                "usd_invested": b["usd_invested"],
+                "actual_fees_usd": b["actual_fees_usd"],
+                "recurring_fees_usd": b["recurring_fees_usd"],
+                "period_savings_usd": period_diff,
+                "cumulative_savings_usd": cumulative_diff,
+            })
+
+        return {
+            "assumptions": {
+                "recurring_buy_fee_rate": RECURRING_BUY_FEE_RATE,
+            },
+            "granularity": granularity,
+            "series": series,
+            "totals": {
+                "usd_invested": total_invested,
+                "actual_fees_usd": total_actual,
+                "recurring_fees_usd": total_recurring,
+                "total_savings_usd": total_recurring - total_actual,
+            },
+        }
