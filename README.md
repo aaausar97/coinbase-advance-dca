@@ -86,6 +86,7 @@ uvicorn app.main:app --reload --env-file environment/.env
 
 ## Testing 
 
-```cd /Users/ausarmundra/coding/dca-bot/environment
+```bash
+cd ../environment
 docker compose run --rm -v ..:/app -w /app dca-bot python -m pytest -q
 ```
