@@ -84,7 +84,7 @@ uvicorn app.main:app --reload --env-file environment/.env
 - Daily USD cap (`DCA_DAILY_CAP_USD=100`)
 - Idempotent `client_order_id` (per-minute granularity)
 
-## Testing 
+## Testing
 
 ```bash
 cd ../environment
