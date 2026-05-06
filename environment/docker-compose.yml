@@ -1,0 +1,24 @@
+services:
+  dca-bot:
+    build:
+      context: ..
+      dockerfile: environment/Dockerfile
+    image: dca-bot:dev
+    container_name: dca-bot-dev
+    env_file: .env
+    environment:
+      - ENV_FILE=/app/environment/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../data:/app/data
+      - ../app:/app/app
+      - ../environment:/app/environment:ro
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

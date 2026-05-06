@@ -1,0 +1,22 @@
+services:
+  dca-bot:
+    build:
+      context: ..
+      dockerfile: environment/Dockerfile
+    image: dca-bot:latest
+    container_name: dca-bot
+    env_file: .env
+    environment:
+      - ENV_FILE=/app/environment/.env
+    ports:
+      - "8001:8000"
+    volumes:
+      - ../data:/app/data
+      - ../environment:/app/environment:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
