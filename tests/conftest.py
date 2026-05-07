@@ -48,14 +48,17 @@ class FakeCoinbaseClient:
                 "client_order_id": client_order_id,
             }
         )
-        size = (Decimal(usd) / self._price).quantize(Decimal("0.000000000001"))
+        usd_d = Decimal(usd)
+        estimated_fees = (usd_d * Decimal("0.006")).quantize(Decimal("0.00000001"))
+        effective_usd = usd_d - estimated_fees
+        size = (effective_usd / self._price).quantize(Decimal("0.000000000001"))
         return {
             "success": True,
             "dry_run": True,
             "order_id": f"fake-{uuid.uuid4()}",
             "filled_size": size,
             "avg_price": self._price,
-            "fees_usd": Decimal("0"),
+            "fees_usd": estimated_fees,
             "raw": {"fake": True},
         }
 

@@ -28,6 +28,7 @@ docs/dca_bot_key.png
 .vscode/
 .idea/
 .DS_Store
+.cursor/
 
 # Logs
 *.log

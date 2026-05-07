@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 PUBLIC_TICKER_URL = "https://api.coinbase.com/api/v3/brokerage/market/products/{product_id}/ticker?limit=1"
 
+ADVANCED_TRADE_TAKER_FEE_RATE = Decimal("0.006")
+
 
 class CoinbaseClient:
     """Lightweight async-friendly wrapper around the Coinbase Advanced SDK."""
@@ -141,14 +143,16 @@ class CoinbaseClient:
         client_order_id: str,
     ) -> dict[str, Any]:
         price = await self.get_ticker_price(product_id)
-        filled_size = (usd / price).quantize(Decimal("0.000000000001"))
+        estimated_fees = (usd * ADVANCED_TRADE_TAKER_FEE_RATE).quantize(Decimal("0.00000001"))
+        effective_usd = usd - estimated_fees
+        filled_size = (effective_usd / price).quantize(Decimal("0.000000000001"))
         simulated = {
             "success": True,
             "dry_run": True,
             "order_id": f"dryrun-{uuid.uuid4()}",
             "filled_size": filled_size,
             "avg_price": price,
-            "fees_usd": Decimal("0"),
+            "fees_usd": estimated_fees,
             "raw": {
                 "simulator": True,
                 "product_id": product_id,
@@ -156,6 +160,7 @@ class CoinbaseClient:
                 "client_order_id": client_order_id,
                 "price": str(price),
                 "filled_size": str(filled_size),
+                "estimated_fees": str(estimated_fees),
             },
         }
         logger.info(
